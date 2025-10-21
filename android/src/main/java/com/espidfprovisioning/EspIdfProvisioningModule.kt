@@ -151,9 +151,7 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
         }
 
         override fun onFailure(e: Exception?) {
-          if (e != null) {
-            promise?.reject(e)
-          }
+          promise?.reject(e ?: Exception("Unknown error"))
         }
       })
     } else {
@@ -189,9 +187,7 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
         }
 
         override fun onWiFiScanFailed(e: Exception?) {
-          if (e != null) {
-            promise?.reject(e)
-          }
+          promise?.reject(e ?: Exception("Unknown error"))
         }
       })
     }
@@ -282,12 +278,27 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
         return
       }
     } else {
+      // Ensure WiFi access point info is present and password is non-null for SoftAP.
       if (espDevice?.wifiDevice == null) {
         val wifiDevice = WiFiAccessPoint()
         wifiDevice.wifiName = deviceName
-        wifiDevice.password = softAPPassword
-
+        // For open AP we pass empty string, avoid null which crashes setWpa2Passphrase in SDK
+        wifiDevice.password = softAPPassword ?: ""
         espDevice?.wifiDevice = wifiDevice
+      } else {
+        // If WiFi device originates from scan, password may be null. Force non-null.
+        if (espDevice?.wifiDevice?.password == null) {
+          espDevice?.wifiDevice?.password = softAPPassword ?: ""
+        } else {
+          // Always overwrite with provided password to ensure correctness
+          espDevice?.wifiDevice?.password = softAPPassword ?: ""
+        }
+      }
+
+      // Apply PoP and optional username for SoftAP as well
+      espDevice?.proofOfPossession = proofOfPossession
+      if (username != null) {
+        espDevice?.userName = username
       }
 
       val result = Arguments.createMap()
@@ -429,9 +440,7 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
       }
 
       override fun onFailure(e: Exception?) {
-        if (e != null) {
-          promise?.reject(e)
-        }
+        promise?.reject(e ?: Exception("Unknown error"))
       }
     })
   }
@@ -480,9 +489,7 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
 
     espDevice.provision(ssid, passphrase, object : ProvisionListener {
       override fun createSessionFailed(e: Exception?) {
-        if (e != null) {
-          promise?.reject(e)
-        }
+        promise?.reject(e ?: Exception("Unknown error"))
       }
 
       override fun wifiConfigSent() {
@@ -490,9 +497,7 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
       }
 
       override fun wifiConfigFailed(e: Exception?) {
-        if (e != null) {
-          promise?.reject(e)
-        }
+        promise?.reject(e ?: Exception("Unknown error"))
       }
 
       override fun wifiConfigApplied() {
@@ -500,9 +505,7 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
       }
 
       override fun wifiConfigApplyFailed(e: Exception?) {
-        if (e != null) {
-          promise?.reject(e)
-        }
+        promise?.reject(e ?: Exception("Unknown error"))
       }
 
       override fun provisioningFailedFromDevice(failureReason: ESPConstants.ProvisionFailureReason?) {
@@ -516,9 +519,7 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
       }
 
       override fun onProvisioningFailed(e: Exception?) {
-        if (e != null) {
-          promise?.reject(e)
-        }
+        promise?.reject(e ?: Exception("Unknown error"))
       }
     })
   }

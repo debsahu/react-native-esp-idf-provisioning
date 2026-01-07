@@ -1,8 +1,5 @@
-#ifdef RCT_NEW_ARCH_ENABLED
-#import <RNEspIdfProvisioningSpec/RNEspIdfProvisioningSpec.h>
-#else
+// Force legacy architecture - no TurboModule spec available
 #import <React/RCTBridgeModule.h>
-#endif
 
 @interface RCT_EXTERN_MODULE(EspIdfProvisioning, NSObject)
     RCT_EXTERN_METHOD(searchESPDevices:(NSString *)devicePrefix
@@ -105,13 +102,13 @@
       return YES;
     }
 
-    // Don't compile this code when we build for the old architecture.
-    #ifdef RCT_NEW_ARCH_ENABLED
-    - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
-        (const facebook::react::ObjCTurboModule::InitParams &)params
-    {
-        return std::make_shared<facebook::react::NativeEspIdfProvisioningSpecJSI>(params);
-    }
-    #endif
+    // Disabled: Force legacy architecture - no TurboModule spec available
+    // #ifdef RCT_NEW_ARCH_ENABLED
+    // - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
+    //     (const facebook::react::ObjCTurboModule::InitParams &)params
+    // {
+    //     return std::make_shared<facebook::react::NativeEspIdfProvisioningSpecJSI>(params);
+    // }
+    // #endif
 
 @end

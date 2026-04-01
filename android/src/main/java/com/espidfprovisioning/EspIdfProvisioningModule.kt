@@ -45,7 +45,7 @@ fun BluetoothDevice.isAlreadyConnected(): Boolean {
   }
 }
 
-@OptIn(kotlin.ExperimentalStdlibApi::class) 
+@OptIn(kotlin.ExperimentalStdlibApi::class)
 class EspIdfProvisioningModule internal constructor(context: ReactApplicationContext?) : EspIdfProvisioningSpec(context) {
   override fun getName(): String {
     return NAME
@@ -77,6 +77,40 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
 
   private fun hasFineLocationPermission(): Boolean {
     return ContextCompat.checkSelfPermission(reactApplicationContext, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+  }
+
+  private fun isSecureSecurityType(securityType: ESPConstants.SecurityType): Boolean {
+    return securityType != ESPConstants.SecurityType.SECURITY_0
+  }
+
+  private fun getReportedSecurityType(espDevice: ESPDevice): ESPConstants.SecurityType? {
+    val versionInfo = espDevice.versionInfo ?: return null
+
+    return try {
+      val provInfo = JSONObject(versionInfo).getJSONObject("prov")
+
+      if (provInfo.has("sec_ver")) {
+        when (provInfo.optInt("sec_ver")) {
+          0 -> ESPConstants.SecurityType.SECURITY_0
+          1 -> ESPConstants.SecurityType.SECURITY_1
+          2 -> ESPConstants.SecurityType.SECURITY_2
+          else -> ESPConstants.SecurityType.SECURITY_2
+        }
+      } else if (espDevice.securityType == ESPConstants.SecurityType.SECURITY_2) {
+        ESPConstants.SecurityType.SECURITY_1
+      } else {
+        espDevice.securityType
+      }
+    } catch (e: JSONException) {
+      null
+    }
+  }
+
+  private fun hasSecurityMismatch(espDevice: ESPDevice): Boolean {
+    val reportedSecurityType = getReportedSecurityType(espDevice) ?: return false
+
+    return isSecureSecurityType(espDevice.securityType) !=
+      isSecureSecurityType(reportedSecurityType)
   }
 
   @SuppressLint("MissingPermission")
@@ -216,12 +250,6 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
     username: String?,
     promise: Promise?
   ) {
-    // Permission checks
-    if (!hasBluetoothPermissions()) {
-      promise?.reject(Error("Missing one of the following permissions: BLUETOOTH, BLUETOOTH_ADMIN, BLUETOOTH_CONNECT, BLUETOOTH_SCAN"))
-      return
-    }
-
     val transportEnum = when (transport) {
       "softap" -> ESPConstants.TransportType.TRANSPORT_SOFTAP
       "ble" -> ESPConstants.TransportType.TRANSPORT_BLE
@@ -233,6 +261,12 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
       2 -> ESPConstants.SecurityType.SECURITY_2
       else -> ESPConstants.SecurityType.SECURITY_2
     }
+    val normalizedProofOfPossession =
+      if (securityEnum == ESPConstants.SecurityType.SECURITY_0) {
+        proofOfPossession ?: ""
+      } else {
+        proofOfPossession
+      }
 
     // If no ESP device found in list (no scan has been performed), create a new one
     var espDevice = espDevices[deviceName];
@@ -255,6 +289,11 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
     }
 
     if (transportEnum == ESPConstants.TransportType.TRANSPORT_BLE) {
+      if (!hasBluetoothPermissions()) {
+        promise?.reject(Error("Missing one of the following permissions: BLUETOOTH, BLUETOOTH_ADMIN, BLUETOOTH_CONNECT, BLUETOOTH_SCAN"))
+        return
+      }
+
       // If the bluetooth device does not exist, try using the bonded one (if it exists)
       if (espDevice?.bluetoothDevice == null) {
         espDevice?.bluetoothDevice = bluetoothAdapter.bondedDevices.find { bondedDevice ->
@@ -264,7 +303,7 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
 
       // If the bluetooth device exists and we have a primary service uuid, we will be able to connect to it
       if (espDevice?.bluetoothDevice != null && espDevice.primaryServiceUuid != null) {
-        espDevice.proofOfPossession = proofOfPossession
+        espDevice.proofOfPossession = normalizedProofOfPossession
         if (username != null) {
           espDevice.userName = username
         }
@@ -296,7 +335,7 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
       }
 
       // Apply PoP and optional username for SoftAP as well
-      espDevice?.proofOfPossession = proofOfPossession
+      espDevice?.proofOfPossession = normalizedProofOfPossession
       if (username != null) {
         espDevice?.userName = username
       }
@@ -320,7 +359,7 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
         }
 
         // Configure proof of possession
-        espDevice.proofOfPossession = proofOfPossession
+        espDevice.proofOfPossession = normalizedProofOfPossession
         if (username != null) {
           espDevice.userName = username
         }
@@ -333,36 +372,32 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
         promise?.resolve(result)
       }
 
-      override fun reject(message: String) {
-        promise?.reject(message)
-      }
-
-      override fun reject(code: String, userInfo: WritableMap) {
-        promise?.reject(code, userInfo)
-      }
-
-      override fun reject(code: String, message: String?) {
+      override fun reject(code: String?, message: String?) {
         promise?.reject(code, message)
       }
 
-      override fun reject(code: String, message: String?, userInfo: WritableMap) {
-        promise?.reject(code, message, userInfo)
+      override fun reject(code: String?, throwable: Throwable?) {
+        promise?.reject(code, throwable);
       }
 
-      override fun reject(code: String, message: String?, throwable: Throwable?) {
+      override fun reject(
+        code: String?,
+        message: String?,
+        throwable: Throwable?
+      ) {
         promise?.reject(code, message, throwable)
-      }
-
-      override fun reject(code: String, throwable: Throwable?) {
-        promise?.reject(code, throwable)
-      }
-
-      override fun reject(code: String, throwable: Throwable?, userInfo: WritableMap) {
-        promise?.reject(code, throwable, userInfo)
       }
 
       override fun reject(code: String?, message: String?, throwable: Throwable?, userInfo: WritableMap?) {
         promise?.reject(code, message, throwable, userInfo)
+      }
+
+      @Deprecated(
+        "Prefer passing a module-specific error code to JS. Using this method will pass the\n        error code EUNSPECIFIED",
+        replaceWith = ReplaceWith("reject(code, message)")
+      )
+      override fun reject(message: String) {
+        promise?.reject(message)
       }
 
       override fun reject(throwable: Throwable) {
@@ -371,6 +406,26 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
 
       override fun reject(throwable: Throwable, userInfo: WritableMap) {
         promise?.reject(throwable, userInfo)
+      }
+
+      override fun reject(code: String?, userInfo: WritableMap) {
+        promise?.reject(code, userInfo)
+      }
+
+      override fun reject(
+        code: String?,
+        throwable: Throwable?,
+        userInfo: WritableMap
+      ) {
+        promise?.reject(code, throwable, userInfo)
+      }
+
+      override fun reject(
+        code: String?,
+        message: String?,
+        userInfo: WritableMap
+      ) {
+        promise?.reject(code, message, userInfo)
       }
     })
   }
@@ -407,9 +462,13 @@ class EspIdfProvisioningModule internal constructor(context: ReactApplicationCon
       fun onEvent(event: DeviceConnectionEvent) {
         when (event.eventType) {
           ESPConstants.EVENT_DEVICE_CONNECTED -> {
-            val result = Arguments.createMap()
-            result.putString("status", "connected")
-            promise?.resolve(result)
+            if (hasSecurityMismatch(espDevice)) {
+              promise?.reject(Error("Security mismatch. The configured security type does not match the device."))
+            } else {
+              val result = Arguments.createMap()
+              result.putString("status", "connected")
+              promise?.resolve(result)
+            }
           }
           ESPConstants.EVENT_DEVICE_CONNECTION_FAILED -> {
             promise?.reject(Error("Device connection failed."))

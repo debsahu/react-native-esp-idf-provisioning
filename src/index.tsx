@@ -31,6 +31,20 @@ const EspIdfProvisioning = EspIdfProvisioningModule
       }
     );
 
+function normalizeProofOfPossession(
+  security: ESPSecurity,
+  proofOfPossession: string | null | undefined
+): string | null {
+  if (
+    security === ESPSecurity.unsecure &&
+    (proofOfPossession === null || proofOfPossession === undefined)
+  ) {
+    return '';
+  }
+
+  return proofOfPossession ?? null;
+}
+
 export class ESPDevice implements ESPDeviceInterface {
   name: string;
   transport: ESPTransport;
@@ -68,11 +82,30 @@ export class ESPDevice implements ESPDeviceInterface {
     softAPPassword: string | null = null,
     username: string | null = null
   ): Promise<void> {
+    const normalizedProofOfPossession = normalizeProofOfPossession(
+      this.security,
+      proofOfPossession
+    );
+
+    if (this.security === ESPSecurity.secure2) {
+      if (!normalizedProofOfPossession) {
+        throw new Error(
+          'Proof of possession is required for devices using ESPSecurity.secure2.'
+        );
+      }
+
+      if (!username) {
+        throw new Error(
+          'Username is required for devices using ESPSecurity.secure2.'
+        );
+      }
+    }
+
     await EspIdfProvisioning.createESPDevice(
       this.name,
       this.transport,
       this.security,
-      proofOfPossession,
+      normalizedProofOfPossession,
       softAPPassword,
       username
     );
@@ -86,13 +119,27 @@ export class ESPDevice implements ESPDeviceInterface {
    * Send data to the device.
    * @param path The path to send the data to.
    * @param data The data to send. The data should be a string. The data will be transferred with base64 encoding.
+   * Custom endpoint requests require an active provisioning session. Some device firmware disconnects
+   * BLE/SoftAP after successful provisioning, so calling this after provision() may fail unless the
+   * device explicitly keeps the session available.
    * @returns A promise that resolves with the response data.
    */
   async sendData(path: string, data: string): Promise<string> {
     const base64Data = Buffer.from(data).toString('base64');
-    return EspIdfProvisioning.sendData(this.name, path, base64Data).then(
-      (returnData: string) => Buffer.from(returnData, 'base64').toString('utf8')
-    );
+
+    try {
+      const returnData = await EspIdfProvisioning.sendData(
+        this.name,
+        path,
+        base64Data
+      );
+
+      return Buffer.from(returnData, 'base64').toString('utf8');
+    } catch (error) {
+      throw new Error(
+        `Request to send data to device failed: ${(error as Error)?.message ?? String(error)}. Custom endpoint requests require an active provisioning session; if this happens after provision(), the device firmware may have already closed the session or disconnected the transport.`
+      );
+    }
   }
 
   /**

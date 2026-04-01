@@ -1,11 +1,13 @@
 const mockCreateESPDevice = jest.fn().mockResolvedValue({});
 const mockConnect = jest.fn().mockResolvedValue({ status: 'connected' });
+const mockSendData = jest.fn();
 
 jest.mock('react-native', () => ({
   NativeModules: {
     EspIdfProvisioning: {
       createESPDevice: mockCreateESPDevice,
       connect: mockConnect,
+      sendData: mockSendData,
     },
   },
   Platform: {
@@ -17,6 +19,7 @@ describe('ESPDevice.connect', () => {
   beforeEach(() => {
     mockCreateESPDevice.mockClear();
     mockConnect.mockClear();
+    mockSendData.mockClear();
   });
 
   it('normalizes a missing PoP to empty string for security 0 devices', async () => {
@@ -91,5 +94,28 @@ describe('ESPDevice.connect', () => {
     );
 
     expect(mockCreateESPDevice).not.toHaveBeenCalled();
+  });
+});
+
+describe('ESPDevice.sendData', () => {
+  beforeEach(() => {
+    mockSendData.mockClear();
+  });
+
+  it('adds session guidance when custom endpoint requests fail', async () => {
+    const { ESPDevice, ESPSecurity, ESPTransport } = require('../index');
+
+    mockSendData.mockRejectedValueOnce(new Error('Write to BLE failed'));
+
+    const device = new ESPDevice({
+      name: 'PROV_SEND',
+      transport: ESPTransport.ble,
+      security: ESPSecurity.secure2,
+    });
+
+    await expect(device.sendData('/custom-endpoint', '{"foo":"bar"}')).rejects
+      .toThrow(
+        'Request to send data to device failed: Write to BLE failed. Custom endpoint requests require an active provisioning session; if this happens after provision(), the device firmware may have already closed the session or disconnected the transport.'
+      );
   });
 });

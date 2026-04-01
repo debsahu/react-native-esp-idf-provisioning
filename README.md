@@ -5,7 +5,7 @@ Android and iOS bridge for ESP IDF provisioning. Provides a unified interface fo
 - https://github.com/espressif/esp-idf-provisioning-android
 - https://github.com/espressif/esp-idf-provisioning-ios
 
-SoftAP mode is not tested and probably does not work yet. Feel free to help with this. See [#6](https://github.com/orbital-systems/react-native-esp-idf-provisioning/issues/6).
+BLE provisioning is the primary production path for this library. SoftAP support is implemented on both platforms, but has seen less real-world validation and may vary depending on platform, permissions, and device firmware. See [#6](https://github.com/orbital-systems/react-native-esp-idf-provisioning/issues/6).
 
 QR code scanning is deliberately not supported. This can be done using other react-native libraries.
 
@@ -116,6 +116,10 @@ await device.connect(proofOfPosession, null, username);
 const softAPPassword = 'password';
 await device.connect(null, softAPPassword, null);
 
+// connect() means the transport is connected and device metadata/version info
+// has been fetched. It does not guarantee that a provisioning session is still
+// available for later custom endpoint requests.
+
 // Get wifi list
 const wifiList = await device.scanWifiList();
 
@@ -123,6 +127,12 @@ const wifiList = await device.scanWifiList();
 const ssid = 'ssid';
 const passphrase = 'passphrase';
 await device.provision(ssid, passphrase);
+
+// Send custom data
+// Note: custom endpoint requests require an active provisioning session.
+// Some firmware disconnects after successful provisioning, so this may need
+// to happen before provision() unless the device keeps the session available.
+const response = await device.sendData('/custom-endpoint', '{"foo":"bar"}');
 
 // Disconnect
 device.disconnect();
